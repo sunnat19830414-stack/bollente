@@ -1,0 +1,18 @@
+[Unit]
+Description=Bollente Telegram Sales Bot
+After=network.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/SRlux-dolibarr/scripts/bollente_bot
+ExecStart=/home/ubuntu/bollente-bot-venv/bin/python bot.py
+Restart=always
+RestartSec=10
+EnvironmentFile=/home/ubuntu/.env
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=bollente-bot
+
+[Install]
+WantedBy=multi-user.target
