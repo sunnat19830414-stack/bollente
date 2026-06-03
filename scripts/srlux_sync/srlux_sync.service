@@ -1,0 +1,13 @@
+[Unit]
+Description=SR Lux → Bollente Dolibarr catalog sync
+After=network.target
+
+[Service]
+Type=oneshot
+User=root
+WorkingDirectory=/home/ubuntu/bollente/scripts/srlux_sync
+ExecStart=/home/ubuntu/bollente-bot-venv/bin/python sync.py
+EnvironmentFile=/home/ubuntu/.env
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=srlux-sync
