@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 VENV="/home/ubuntu/bollente-bot-venv"
-REPO="/home/ubuntu/SRlux-dolibarr"
+REPO="/home/ubuntu/bollente"
 BOT_DIR="$REPO/scripts/bollente_bot"
 
 echo "=== Bollente Bot Setup ==="
