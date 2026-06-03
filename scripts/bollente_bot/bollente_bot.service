@@ -5,7 +5,7 @@ After=network.target
 [Service]
 Type=simple
 User=ubuntu
-WorkingDirectory=/home/ubuntu/SRlux-dolibarr/scripts/bollente_bot
+WorkingDirectory=/home/ubuntu/bollente/scripts/bollente_bot
 ExecStart=/home/ubuntu/bollente-bot-venv/bin/python bot.py
 Restart=always
 RestartSec=10

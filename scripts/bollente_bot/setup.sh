@@ -41,7 +41,7 @@ if [ $MISSING -eq 1 ]; then
 fi
 
 # Install systemd service
-sudo cp "$BOT_DIR/bollente_bot.service" /etc/systemd/system/
+sudo cp "$BOT_DIR/bollente_bot.service" /etc/systemd/system/bollente-bot.service
 sudo systemctl daemon-reload
 sudo systemctl enable bollente-bot
 sudo systemctl restart bollente-bot
