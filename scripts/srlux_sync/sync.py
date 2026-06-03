@@ -10,21 +10,26 @@ from dotenv import load_dotenv
 
 for _env in [Path("/home/ubuntu/.env"), Path(__file__).parent / ".env"]:
     if _env.exists():
-        load_dotenv(_env, override=False)
+        load_dotenv(_env, override=True)
 
 SRLUX_API = os.getenv("SRLUX_API_URL", "https://srlux.uz")
-DOL_URL   = os.getenv("BOLLENTE_DOLIBARR_URL", "").rstrip("/")
-DOL_KEY   = os.getenv("BOLLENTE_DOLIBARR_KEY", "")
 
 logging.basicConfig(format="%(asctime)s [%(levelname)s] %(message)s", level=logging.INFO)
 log = logging.getLogger("srlux_sync")
 
-HEADERS = {"DOLAPIKEY": DOL_KEY, "Content-Type": "application/json"}
+
+def _dol_cfg():
+    return (
+        os.getenv("BOLLENTE_DOLIBARR_URL", "").rstrip("/"),
+        os.getenv("BOLLENTE_DOLIBARR_KEY", ""),
+    )
 
 
 def dol(method: str, path: str, **kw):
-    url = f"{DOL_URL}/api/index.php/{path}"
-    r = httpx.request(method, url, headers=HEADERS, timeout=30, verify=False, **kw)
+    dol_url, dol_key = _dol_cfg()
+    url = f"{dol_url}/api/index.php/{path}"
+    headers = {"DOLAPIKEY": dol_key, "Content-Type": "application/json"}
+    r = httpx.request(method, url, headers=headers, timeout=30, verify=False, **kw)
     r.raise_for_status()
     return r.json()
 
@@ -120,7 +125,9 @@ def sync_products(products: list, cat_map: dict):
 
 
 def main():
-    if not DOL_URL or not DOL_KEY:
+    dol_url, dol_key = _dol_cfg()
+    log.info(f"Dolibarr URL: {dol_url}, key set: {bool(dol_key)}")
+    if not dol_url or not dol_key:
         log.error("BOLLENTE_DOLIBARR_URL or BOLLENTE_DOLIBARR_KEY not set")
         return
 
