@@ -66,16 +66,17 @@ async def _srlux(path: str, params: dict | None = None) -> list | dict:
 
 
 def _norm_product(p: dict) -> dict:
+    cat = p.get("category") or {}
     return {
         "id":          p.get("id", 0),
         "rowid":       p.get("id", 0),
-        "label":       p.get("name") or p.get("label", ""),
-        "ref":         p.get("slug") or p.get("ref", ""),
-        "price":       float(p.get("price") or 0),
+        "label":       p.get("name_ru") or p.get("name_uz") or p.get("name", ""),
+        "ref":         p.get("sku") or p.get("slug", ""),
+        "price":       float(p.get("price_uzs") or 0),
         "price_uzs":   True,
-        "stock_reel":  1 if p.get("in_stock", True) else 0,
-        "description": (p.get("description") or "").strip(),
-        "categories":  [{"id": p["category_id"]}] if p.get("category_id") else [],
+        "stock_reel":  int(p.get("stock") or 0),
+        "description": (p.get("description_ru") or p.get("description_uz") or "").strip(),
+        "categories":  [{"id": cat["id"]}] if cat.get("id") else [],
     }
 
 
@@ -83,7 +84,7 @@ def _norm_category(c: dict) -> dict:
     return {
         "id":    c.get("id", 0),
         "rowid": c.get("id", 0),
-        "label": c.get("name") or c.get("label", ""),
+        "label": c.get("name_ru") or c.get("name_uz") or c.get("name", ""),
     }
 
 
@@ -106,8 +107,8 @@ async def load_catalog() -> tuple[list, list]:
         while True:
             data = await _srlux("api/products", {"page": page, "limit": 100})
             if isinstance(data, dict):
-                items = data.get("items") or data.get("products") or []
-                total = data.get("total", 0)
+                items = data.get("products") or data.get("items") or []
+                total = int(data.get("total") or 0)
             else:
                 items, total = data or [], 0
             if not items:
