@@ -38,6 +38,7 @@ DOLIBARR_URL    = os.getenv("BOLLENTE_DOLIBARR_URL", "")
 DOLIBARR_KEY    = os.getenv("BOLLENTE_DOLIBARR_KEY", "")
 ANTHROPIC_KEY   = os.getenv("ANTHROPIC_API_KEY", "")
 MANAGER_CHAT_ID = int(os.getenv("BOLLENTE_MANAGER_CHAT_ID", "0"))
+SRLUX_API_URL   = os.getenv("SRLUX_API_URL", "https://srlux.uz")
 
 logging.basicConfig(
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
@@ -51,19 +52,48 @@ if not BOT_TOKEN:
 # ── Conversation states ───────────────────────────────────────────────────────
 LEAD_NAME, LEAD_PHONE, LEAD_CITY, LEAD_NEED = range(4)
 
-# ── Dolibarr API + cache ──────────────────────────────────────────────────────
+# ── SR Lux API + cache ────────────────────────────────────────────────────────
 _cache: dict = {"products": [], "categories": [], "ts": 0.0}
 CACHE_TTL = 300  # 5 min
 
 
-async def _dol(path: str, params: dict | None = None) -> list | dict:
-    if not DOLIBARR_URL or not DOLIBARR_KEY:
-        return []
-    url = f"{DOLIBARR_URL.rstrip('/')}/api/index.php/{path.lstrip('/')}"
-    async with httpx.AsyncClient(timeout=10, verify=False) as c:
-        r = await c.get(url, headers={"DOLAPIKEY": DOLIBARR_KEY}, params=params or {})
+async def _srlux(path: str, params: dict | None = None) -> list | dict:
+    url = f"{SRLUX_API_URL.rstrip('/')}/{path.lstrip('/')}"
+    async with httpx.AsyncClient(timeout=15) as c:
+        r = await c.get(url, params=params or {})
         r.raise_for_status()
         return r.json()
+
+
+def _norm_product(p: dict) -> dict:
+    return {
+        "id":          p.get("id", 0),
+        "rowid":       p.get("id", 0),
+        "label":       p.get("name") or p.get("label", ""),
+        "ref":         p.get("slug") or p.get("ref", ""),
+        "price":       float(p.get("price") or 0),
+        "price_uzs":   True,
+        "stock_reel":  1 if p.get("in_stock", True) else 0,
+        "description": (p.get("description") or "").strip(),
+        "categories":  [{"id": p["category_id"]}] if p.get("category_id") else [],
+    }
+
+
+def _norm_category(c: dict) -> dict:
+    return {
+        "id":    c.get("id", 0),
+        "rowid": c.get("id", 0),
+        "label": c.get("name") or c.get("label", ""),
+    }
+
+
+def _fmt_price(p: dict) -> str:
+    price = float(p.get("price") or 0)
+    if not price:
+        return "цена по запросу"
+    if p.get("price_uzs"):
+        return f"{price:,.0f} сум".replace(",", " ")
+    return f"${price:.0f}"
 
 
 async def load_catalog() -> tuple[list, list]:
@@ -71,18 +101,36 @@ async def load_catalog() -> tuple[list, list]:
     if time.time() - _cache["ts"] < CACHE_TTL:
         return _cache["products"], _cache["categories"]
     try:
-        prods = await _dol("products", {
-            "limit": 500, "sortfield": "label", "sortorder": "ASC", "mode": 1,
-        })
-        cats = await _dol("categories", {"type": "product", "limit": 50})
-        if isinstance(prods, list):
+        all_products: list = []
+        page = 1
+        while True:
+            data = await _srlux("api/products", {"page": page, "limit": 100})
+            if isinstance(data, dict):
+                items = data.get("items") or data.get("products") or []
+                total = data.get("total", 0)
+            else:
+                items, total = data or [], 0
+            if not items:
+                break
+            all_products.extend(items)
+            if total and len(all_products) >= total:
+                break
+            if len(items) < 100:
+                break
+            page += 1
+
+        cats_raw = await _srlux("api/categories")
+        cats  = [_norm_category(c) for c in (cats_raw if isinstance(cats_raw, list) else [])]
+        prods = [_norm_product(p) for p in all_products]
+
+        if prods:
             _cache["products"] = prods
-        if isinstance(cats, list):
+        if cats:
             _cache["categories"] = cats
         _cache["ts"] = time.time()
         log.info(f"Catalog refreshed: {len(_cache['products'])} products, {len(_cache['categories'])} cats")
     except Exception as e:
-        log.warning(f"Dolibarr API error: {e}")
+        log.warning(f"SR Lux API error: {e}")
     return _cache["products"], _cache["categories"]
 
 
@@ -90,12 +138,10 @@ def _product_ctx(products: list) -> str:
     lines = []
     for p in products[:100]:
         name  = p.get("label", "")
-        ref   = p.get("ref", "")
-        price = float(p.get("price") or 0)
+        price = _fmt_price(p)
         stock = int(p.get("stock_reel") or 0)
-        p_str = f"${price:.0f}" if price else "цена по запросу"
-        s_str = f"есть {stock} шт" if stock > 0 else "под заказ"
-        lines.append(f"• {name} [{ref}]: {p_str}, {s_str}")
+        s_str = "есть в наличии" if stock > 0 else "под заказ"
+        lines.append(f"• {name}: {price}, {s_str}")
     return "\n".join(lines) or "каталог загружается"
 
 
@@ -213,10 +259,9 @@ async def _show_cat_page(q, cat_id: str, page: int) -> None:
     for p in items[s:e]:
         pid   = p.get("id") or p.get("rowid", 0)
         lbl   = (p.get("label") or "")[:38]
-        price = float(p.get("price") or 0)
         stock = int(p.get("stock_reel") or 0)
         icon  = "✅" if stock > 0 else "📦"
-        p_str = f"${price:.0f}" if price else "?"
+        p_str = _fmt_price(p)
         rows.append([InlineKeyboardButton(
             f"{icon} {lbl} — {p_str}",
             callback_data=f"prod|{pid}",
@@ -259,16 +304,12 @@ async def _show_product(q, prod_id: int) -> None:
         return
 
     name  = p.get("label", "—")
-    ref   = p.get("ref", "—")
-    price = float(p.get("price") or 0)
     stock = int(p.get("stock_reel") or 0)
     desc  = (p.get("description") or "").strip()[:300]
 
-    lines = [f"*{name}*", f"`{ref}`", ""]
-    if price:
-        lines.append(f"💰 Цена: *${price:.2f}*")
-    else:
-        lines.append("💰 Цена по запросу")
+    lines = [f"*{name}*", ""]
+    price_str = _fmt_price(p)
+    lines.append(f"💰 Цена: *{price_str}*")
     lines.append("✅ В наличии: %d шт" % stock if stock > 0 else "📦 Под заказ")
     if desc:
         lines += ["", desc]
